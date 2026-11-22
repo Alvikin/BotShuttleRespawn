@@ -1,4 +1,5 @@
 # BotShuttleRespawn
+- ONLY WORKS IN MULTIPLAYER because respawn shuttle doesn't exist in singleplayer mode. Maybe i'll try making a singleplayer one eventually, as of now if you're playing solo just use a private server.
 - Maybe unstable (idk, but use it at your own risk)
 - No newgame needed
 - Now your bots will respawn with you or any other palyer that calls the respawn shuttle, beware that they are dumb and you need to order them to follow you to make them leave the shuttle

@@ -1,0 +1,3 @@
+local BSR = ...
+
+BSR.allowFireCharacter = false

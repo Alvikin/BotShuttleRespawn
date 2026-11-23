@@ -39,8 +39,9 @@ Hook.Patch(
             return
         end
 
-        local respawnedBots = 0
+        local newlyRespawnedBots = {}
 
+        -- Etapa 1: Revive todos os bots mortos e entrega os itens básicos da função
         for _, info in pairs(crewManager.GetCharacterInfos()) do
             local isPlayer = false
             for _, client in pairs(Client.ClientList) do
@@ -64,14 +65,18 @@ Hook.Patch(
 
                 local newBot = BSR.SpawnBotBody(info, shuttle)
                 if newBot ~= nil then
-                    BSR.ProvideShuttleDivingSuit(shuttle, newBot)
-                    respawnedBots = respawnedBots + 1
-                    print("[BotShuttleRespawn] SUCCESS: Created new body + queued disposable suit on shuttle for: " .. info.Name)
+                    table.insert(newlyRespawnedBots, newBot)
+                    print("[BotShuttleRespawn] SUCCESS: Created new body on shuttle for: " .. info.Name)
                 end
             end
         end
 
-        print("[BotShuttleRespawn] Total bots respawned on shuttle: " .. respawnedBots)
+        -- Etapa 2: Gera 1 traje descartável (respawndivingsuit) exclusivamente para cada bot que acabou de renascer
+        for _, bot in ipairs(newlyRespawnedBots) do
+            BSR.ProvideShuttleDivingSuit(shuttle, bot)
+        end
+
+        print("[BotShuttleRespawn] Total bots respawned on shuttle: " .. tostring(#newlyRespawnedBots))
     end,
     Hook.HookMethodType.After
 )

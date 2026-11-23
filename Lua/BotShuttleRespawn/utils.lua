@@ -1,5 +1,7 @@
 local BSR = ...
 
+local reservedLockerSlots = {}
+
 function BSR.ApplyDeathPenalty(info)
     local penalty = Game.ServerSettings and Game.ServerSettings.SkillLossPercentageOnDeath or 0
     print("[BotShuttleRespawn] Applying death penalty (" .. tostring(penalty) .. "%) to: " .. tostring(info.Name))
@@ -13,43 +15,66 @@ function BSR.ApplyDeathPenalty(info)
     end
 end
 
-function BSR.ProvideShuttleDivingSuit(shuttle, bot)
-    if shuttle == nil or bot == nil then
-        print("[BotShuttleRespawn] ERROR: ProvideShuttleDivingSuit received nil shuttle or bot!")
+function BSR.ProvideShuttleDivingSuit(shuttle, character)
+    if shuttle == nil or character == nil then
+        print("[BotShuttleRespawn] ERROR: ProvideShuttleDivingSuit received nil shuttle or character!")
         return
     end
 
-    local suitPrefab = ItemPrefab.GetItemPrefab("respawndivingsuit") or ItemPrefab.GetItemPrefab("divingsuit")
+    local suitPrefab = ItemPrefab.GetItemPrefab("respawndivingsuit")
     if suitPrefab == nil then
-        print("[BotShuttleRespawn] ERROR: Could not find diving suit prefab!")
+        print("[BotShuttleRespawn] ERROR: Could not find respawndivingsuit prefab!")
         return
     end
 
-    -- Procura um armário de traje de mergulho ou contêiner compatível com espaço livre dentro do shuttle
-    local targetContainer = nil
-    for _, item in pairs(Item.ItemList) do
-        if item ~= nil and not item.Removed and item.Submarine == shuttle and item.OwnInventory ~= nil then
-            local identifier = tostring(item.Prefab.Identifier)
-            local hasTag = item.HasTag("divingsuitcontainer") or item.HasTag("diving")
-            if hasTag or string.find(identifier, "divingsuitlocker") or string.find(identifier, "suitlocker") then
-                if not item.OwnInventory.IsFull(false) and item.OwnInventory.CanBePut(suitPrefab) then
-                    targetContainer = item
-                    break
+    -- Aguarda 600ms para garantir que o cliente já carregou o shuttle na rede
+    Timer.Wait(function()
+        if shuttle == nil or shuttle.Removed or character == nil or character.Removed then
+            return
+        end
+
+        -- Procura um armário de traje de mergulho com espaço livre dentro do shuttle
+        local targetLocker = nil
+        for _, item in pairs(Item.ItemList) do
+            if item ~= nil and not item.Removed and item.Submarine == shuttle and item.OwnInventory ~= nil then
+                local identifier = tostring(item.Prefab.Identifier)
+                local hasTag = item.HasTag("divingsuitcontainer") or item.HasTag("diving")
+                if hasTag or string.find(identifier, "divingsuitlocker") or string.find(identifier, "suitlocker") then
+                    local currentCount = 0
+                    for _ in item.OwnInventory.AllItems do
+                        currentCount = currentCount + 1
+                    end
+
+                    local reserved = reservedLockerSlots[item] or 0
+                    local freeSlots = item.OwnInventory.Capacity - currentCount - reserved
+                    if freeSlots > 0 then
+                        targetLocker = item
+                        reservedLockerSlots[item] = reserved + 1
+                        break
+                    end
                 end
             end
         end
-    end
 
-    if targetContainer ~= nil then
-        Entity.Spawner.AddItemToSpawnQueue(suitPrefab, targetContainer.OwnInventory, nil, nil, function(spawnedSuit)
-            print("[BotShuttleRespawn] SUCCESS: Placed disposable diving suit inside shuttle container (" .. tostring(targetContainer.Name) .. ") for: " .. tostring(bot.Name))
+        local spawnPos = targetLocker and targetLocker.WorldPosition or character.WorldPosition
+        Entity.Spawner.AddItemToSpawnQueue(suitPrefab, spawnPos, nil, nil, function(spawnedSuit)
+            if targetLocker ~= nil then
+                reservedLockerSlots[targetLocker] = math.max(0, (reservedLockerSlots[targetLocker] or 1) - 1)
+            end
+
+            if targetLocker ~= nil and not targetLocker.Removed and spawnedSuit ~= nil then
+                local ok = pcall(function()
+                    targetLocker.OwnInventory.TryPutItem(spawnedSuit, nil)
+                end)
+                if ok then
+                    print("[BotShuttleRespawn] SUCCESS: Placed disposable suit inside shuttle locker (" .. tostring(targetLocker.Name) .. ") for: " .. tostring(character.Name))
+                    return
+                end
+            end
+
+            print("[BotShuttleRespawn] SUCCESS: Placed disposable suit on shuttle floor next to: " .. tostring(character.Name))
         end)
-    else
-        local dropPos = bot.WorldPosition
-        Entity.Spawner.AddItemToSpawnQueue(suitPrefab, dropPos, nil, nil, function(spawnedSuit)
-            print("[BotShuttleRespawn] SUCCESS: No free suit locker on shuttle; dropped disposable diving suit on floor next to: " .. tostring(bot.Name))
-        end)
-    end
+    end, 600)
 end
 
 function BSR.SpawnBotBody(info, targetSubmarine)
@@ -77,10 +102,15 @@ function BSR.SpawnBotBody(info, targetSubmarine)
 
         Timer.Wait(function()
             if newBot ~= nil and not newBot.Removed and not newBot.IsDead then
-                -- Força o kit básico padrão (índice 0) no respawn para evitar farm de armas avançadas
-                if info.Job ~= nil then
-                    info.Job.PreferredItemSet = 0
-                end
+                pcall(function()
+                    if info.Job ~= nil and info.Job.Prefab ~= nil then
+                        local itemSets = info.Job.Prefab.ItemSets
+                        if itemSets ~= nil and #itemSets > 0 then
+                            info.Job.ItemSet = itemSets[1]
+                        end
+                    end
+                end)
+
                 newBot.GiveJobItems(false, nil)
                 print("[BotShuttleRespawn] Basic job items delivered to: " .. tostring(newBot.Name))
             end
